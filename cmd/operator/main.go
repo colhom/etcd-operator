@@ -41,18 +41,22 @@ import (
 )
 
 var (
-	analyticsEnabled bool
-	pvProvisioner    string
-	masterHost       string
-	tlsInsecure      bool
-	certFile         string
-	keyFile          string
-	caFile           string
-	namespace        string
-	awsSecret        string
-	awsConfig        string
-	s3Bucket         string
-	gcInterval       time.Duration
+	analyticsEnabled     bool
+	pvProvisioner        string
+	masterHost           string
+	tlsInsecure          bool
+	certFile             string
+	keyFile              string
+	caFile               string
+	etcdClientCAKeyFile  string
+	etcdClientCACertFile string
+	etcdPeerCAKeyFile    string
+	etcdPeerCACertFile   string
+	namespace            string
+	awsSecret            string
+	awsConfig            string
+	s3Bucket             string
+	gcInterval           time.Duration
 
 	chaosLevel int
 
@@ -70,10 +74,15 @@ func init() {
 
 	flag.StringVar(&pvProvisioner, "pv-provisioner", "kubernetes.io/gce-pd", "persistent volume provisioner type")
 	flag.StringVar(&masterHost, "master", "", "API Server addr, e.g. ' - NOT RECOMMENDED FOR PRODUCTION - http://127.0.0.1:8080'. Omit parameter to run in on-cluster mode and utilize the service account token.")
-	flag.StringVar(&certFile, "cert-file", "", " - NOT RECOMMENDED FOR PRODUCTION - Path to public TLS certificate file.")
-	flag.StringVar(&keyFile, "key-file", "", "- NOT RECOMMENDED FOR PRODUCTION - Path to private TLS certificate file.")
-	flag.StringVar(&caFile, "ca-file", "", "- NOT RECOMMENDED FOR PRODUCTION - Path to TLS CA file.")
+	flag.StringVar(&certFile, "cert-file", "", " - NOT RECOMMENDED FOR PRODUCTION - Path to public K8S TLS certificate file.")
+	flag.StringVar(&keyFile, "key-file", "", "- NOT RECOMMENDED FOR PRODUCTION - Path to private K8S TLS certificate file.")
+	flag.StringVar(&caFile, "ca-file", "", "- NOT RECOMMENDED FOR PRODUCTION - Path to K8S TLS CA file.")
 	flag.BoolVar(&tlsInsecure, "tls-insecure", false, "- NOT RECOMMENDED FOR PRODUCTION - Don't verify API server's CA certificate.")
+	flag.StringVar(&etcdClientCAKeyFile, "etcd-client-ca-key-file", "/etc/etcd-operator-ca/client-ca-key.pem", "- NOT RECOMMENDED FOR PRODUCTION - Path to etcd cluster client CA Key file.")
+	flag.StringVar(&etcdClientCACertFile, "etcd-client-ca-cert-file", "/etc/etcd-operator-ca/client-ca-cert.pem", "- NOT RECOMMENDED FOR PRODUCTION - Path to etcd cluster client CA cert file.")
+	flag.StringVar(&etcdPeerCAKeyFile, "etcd-peer-ca-key-file", "/etc/etcd-operator-ca/peer-ca-key.pem", "- NOT RECOMMENDED FOR PRODUCTION - Path to etcd cluster peer CA Key file.")
+	flag.StringVar(&etcdPeerCACertFile, "etcd-peer-ca-cert-file", "/etc/etcd-operator-ca/peer-ca-cert.pem", "- NOT RECOMMENDED FOR PRODUCTION - Path to etcd cluster peer CA Key file.")
+
 	flag.StringVar(&awsSecret, "backup-aws-secret", "", "The name of the kube secret object that stores the aws credential file.")
 	flag.StringVar(&awsConfig, "backup-aws-config", "", "The name of the kube configmap object that presents the aws config file.")
 	flag.StringVar(&s3Bucket, "backup-s3-bucket", "", "The name of the aws S3 bucket to store backups.")
@@ -176,12 +185,17 @@ func newControllerConfig() controller.Config {
 			AWSConfig: awsConfig,
 			S3Bucket:  s3Bucket,
 		},
-		KubeCli: kubecli,
+		KubeCli:              kubecli,
+		EtcdClientCACertPath: etcdClientCACertFile,
+		EtcdClientCAKeyPath:  etcdClientCAKeyFile,
+		EtcdPeerCACertPath:   etcdPeerCACertFile,
+		EtcdPeerCAKeyPath:    etcdPeerCAKeyFile,
 	}
 	if len(cfg.MasterHost) == 0 {
 		logrus.Info("use in cluster client from k8s library")
 		cfg.MasterHost = k8sutil.MustGetInClusterMasterHost()
 	}
+
 	return cfg
 }
 

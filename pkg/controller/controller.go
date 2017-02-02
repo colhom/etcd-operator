@@ -72,10 +72,13 @@ type Config struct {
 	Namespace     string
 	PVProvisioner string
 	s3config.S3Context
-	KubeCli kubernetes.Interface
+	KubeCli                                   kubernetes.Interface
+	EtcdPeerCACertPath, EtcdPeerCAKeyPath     string
+	EtcdClientCACertPath, EtcdClientCAKeyPath string
 }
 
 func (c *Config) Validate() error {
+	//TODO(chom): validate CA TLS assets (expiry, is CA, etc)
 	if _, ok := supportedPVProvisioners[c.PVProvisioner]; !ok {
 		return fmt.Errorf(
 			"persistent volume provisioner %s is not supported: options = %v",
