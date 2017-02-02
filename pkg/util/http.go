@@ -20,7 +20,7 @@ const BackupHTTPQueryVersion = "etcdVersion"
 
 func MakeBackupURL(host, version string) *url.URL {
 	u := &url.URL{
-		Scheme: "http",
+		Scheme: "https",
 		Host:   host,
 		Path:   "/v1/backup",
 	}

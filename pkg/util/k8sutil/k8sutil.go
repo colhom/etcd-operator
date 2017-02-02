@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,9 +40,29 @@ import (
 )
 
 const (
+	PeerCAKeyName    = "peer-ca-key.pem"
+	PeerCACertName   = "peer-ca-cert.pem"
+	ClientCAKeyName  = "client-ca-key.pem"
+	ClientCACertName = "client-ca-cert.pem"
+
+	NodeClientKeyName  = "node-client-key.pem"
+	NodeClientCertName = "node-client-cert.pem"
+	NodePeerKeyName    = "node-peer-key.pem"
+	NodePeerCertName   = "node-peer-cert.pem"
+
+	EtcdClientKeyName  = "etcd-client-key.pem"
+	EtcdClientCertName = "etcd-client-cert.pem"
+
 	// TODO: This is constant for current purpose. We might make it configurable later.
-	etcdDir                    = "/var/etcd"
-	dataDir                    = etcdDir + "/data"
+	etcdDir      = "/var/etcd"
+	dataDir      = etcdDir + "/data"
+	clientTLSDir = "/etc/etcd-operator/client-tls"
+	nodeTLSDir   = "/etc/etcd-operator/node-tls"
+	caTLSDir     = "/etc/etcd-operator/cluster-ca-tls"
+
+	clientInterfaceServerCertFile = "client-cert.pem"
+	clientInterfaceServerKeyFile  = "client-key.pem"
+
 	backupFile                 = "/var/etcd/latest.backup"
 	etcdVersionAnnotationKey   = "etcd.version"
 	annotationPrometheusScrape = "prometheus.io/scrape"
@@ -71,15 +92,22 @@ func makeRestoreInitContainerSpec(backupAddr, name, token, version string) strin
 			Image: "tutum/curl",
 			Command: []string{
 				"/bin/sh", "-c",
-				fmt.Sprintf("curl -o %s %s", backupFile, util.MakeBackupURL(backupAddr, version)),
+				fmt.Sprintf("curl -cacert %s -cert %s -key %s -o %s %s",
+					filepath.Join(caTLSDir, ClientCACertName),
+					filepath.Join(clientTLSDir, EtcdClientCertName),
+					filepath.Join(clientTLSDir, EtcdClientKeyName),
+					backupFile, util.MakeBackupURL(backupAddr, version)),
 			},
 			VolumeMounts: []v1.VolumeMount{
 				{Name: "etcd-data", MountPath: etcdDir},
+				{Name: "etcd-client-tls", MountPath: clientTLSDir, ReadOnly: true},
+				{Name: "etcd-operator-ca", MountPath: caTLSDir, ReadOnly: true},
 			},
 		},
 		{
 			Name:  "restore-datadir",
 			Image: MakeEtcdImage(version),
+			Env:   etcdctlTLSEnv(),
 			Command: []string{
 				"/bin/sh", "-c",
 				fmt.Sprintf("ETCDCTL_API=3 etcdctl snapshot restore %[1]s"+
@@ -91,6 +119,8 @@ func makeRestoreInitContainerSpec(backupAddr, name, token, version string) strin
 			},
 			VolumeMounts: []v1.VolumeMount{
 				{Name: "etcd-data", MountPath: etcdDir},
+				{Name: "etcd-client-tls", MountPath: clientTLSDir, ReadOnly: true},
+				{Name: "etcd-operator-ca", MountPath: caTLSDir, ReadOnly: true},
 			},
 		},
 	}
@@ -244,12 +274,15 @@ func addOwnerRefToObject(o meta.Object, r metatypes.OwnerReference) {
 func MakeEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state, token string, cs spec.ClusterSpec, owner metatypes.OwnerReference) *v1.Pod {
 	commands := fmt.Sprintf("/usr/local/bin/etcd --data-dir=%s --name=%s --initial-advertise-peer-urls=%s "+
 		"--listen-peer-urls=http://0.0.0.0:2380 --listen-client-urls=http://0.0.0.0:2379 --advertise-client-urls=%s "+
-		"--initial-cluster=%s --initial-cluster-state=%s",
-		dataDir, m.Name, m.PeerAddr(), m.ClientAddr(), strings.Join(initialCluster, ","), state)
+		"--initial-cluster=%s --initial-cluster-state=%s "+
+		"--cert-file=%s --key-file=%s --client-cert-auth=true "+
+		dataDir, m.Name, m.PeerAddr(), m.ClientAddr(), strings.Join(initialCluster, ","), state,
+	)
 	if state == "new" {
 		commands = fmt.Sprintf("%s --initial-cluster-token=%s", commands, token)
 	}
 	container := containerWithLivenessProbe(etcdContainer(commands, cs.Version), etcdLivenessProbe())
+
 	pod := &v1.Pod{
 		ObjectMeta: v1.ObjectMeta{
 			Name: m.Name,
@@ -265,6 +298,9 @@ func MakeEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state
 			RestartPolicy: v1.RestartPolicyNever,
 			Volumes: []v1.Volume{
 				{Name: "etcd-data", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
+				{Name: "etcd-node-tls", VolumeSource: v1.VolumeSource{Secret: &v1.SecretVolumeSource{
+					SecretName: cs.ClusterTLS.NodeSecretName,
+				}}},
 			},
 		},
 	}
@@ -344,5 +380,53 @@ func newLablesForCluster(clusterName string) map[string]string {
 	return map[string]string{
 		"etcd_cluster": clusterName,
 		"app":          "etcd",
+	}
+}
+
+// requires etcd-client-tls and etcd-operator-ca secrets
+func etcdctlTLSEnv() []v1.EnvVar {
+	return []v1.EnvVar{
+		{
+			Name:  "ETCD_TRUSTED_CA_FILE",
+			Value: filepath.Join(caTLSDir, ClientCACertName),
+		},
+		{
+			Name:  "ETCD_CERT_FILE",
+			Value: filepath.Join(clientTLSDir, EtcdClientCertName),
+		},
+		{
+			Name:  "ETCD_KEY_FILE",
+			Value: filepath.Join(clientTLSDir, EtcdClientKeyName),
+		},
+	}
+}
+
+// requires etcd-node-tls and etcd-operator-ca secrets
+func etcdNodeTLSEnv() []v1.EnvVar {
+	return []v1.EnvVar{
+		{
+			Name:  "ETCD_TRUSTED_CA_FILE",
+			Value: filepath.Join(caTLSDir, ClientCACertName),
+		},
+		{
+			Name:  "ETCD_CERT_FILE",
+			Value: filepath.Join(nodeTLSDir, NodeClientCertName),
+		},
+		{
+			Name:  "ETCD_KEY_FILE",
+			Value: filepath.Join(nodeTLSDir, NodeClientKeyName),
+		},
+		{
+			Name:  "ETCD_PEER_TRUSTED_CA_FILE",
+			Value: filepath.Join(caTLSDir, PeerCACertName),
+		},
+		{
+			Name:  "ETCD_PEER_CERT_FILE",
+			Value: filepath.Join(nodeTLSDir, NodePeerCertName),
+		},
+		{
+			Name:  "ETCD_PEER_KEY_FILE",
+			Value: filepath.Join(nodeTLSDir, NodePeerKeyName),
+		},
 	}
 }
