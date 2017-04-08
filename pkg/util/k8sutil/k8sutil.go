@@ -122,7 +122,7 @@ func BackupServiceName(clusterName string) string {
 }
 
 func CreateClientService(kubecli kubernetes.Interface, clusterName, ns string, owner metatypes.OwnerReference) error {
-	return createService(kubecli, ClientServiceName(clusterName), clusterName, ns, "", owner)
+	return createService(kubecli, ClientServiceName(clusterName), clusterName, ns, "", 2379, owner)
 }
 
 func ClientServiceName(clusterName string) string {
@@ -130,11 +130,11 @@ func ClientServiceName(clusterName string) string {
 }
 
 func CreatePeerService(kubecli kubernetes.Interface, clusterName, ns string, owner metatypes.OwnerReference) error {
-	return createService(kubecli, clusterName, clusterName, ns, v1.ClusterIPNone, owner)
+	return createService(kubecli, clusterName, clusterName, ns, v1.ClusterIPNone, 2380, owner)
 }
 
-func createService(kubecli kubernetes.Interface, svcName, clusterName, ns, clusterIP string, owner metatypes.OwnerReference) error {
-	svc := newEtcdServiceManifest(svcName, clusterName, clusterIP)
+func createService(kubecli kubernetes.Interface, svcName, clusterName, ns, clusterIP string, port int32, owner metatypes.OwnerReference) error {
+	svc := newEtcdServiceManifest(svcName, clusterName, clusterIP, port)
 	addOwnerRefToObject(svc.GetObjectMeta(), owner)
 	_, err := kubecli.CoreV1().Services(ns).Create(svc)
 	return err
@@ -168,7 +168,7 @@ func CreateAndWaitPod(kubecli kubernetes.Interface, ns string, pod *v1.Pod, time
 	return retPod, nil
 }
 
-func newEtcdServiceManifest(svcName, clusterName string, clusterIP string) *v1.Service {
+func newEtcdServiceManifest(svcName, clusterName string, clusterIP string, port int32) *v1.Service {
 	labels := map[string]string{
 		"app":          "etcd",
 		"etcd_cluster": clusterName,
@@ -182,8 +182,8 @@ func newEtcdServiceManifest(svcName, clusterName string, clusterIP string) *v1.S
 			Ports: []v1.ServicePort{
 				{
 					Name:       "client",
-					Port:       2379,
-					TargetPort: intstr.FromInt(2379),
+					Port:       port,
+					TargetPort: intstr.FromInt(int(port)),
 					Protocol:   v1.ProtocolTCP,
 				},
 			},
