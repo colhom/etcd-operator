@@ -102,12 +102,19 @@ func teardown() error {
 }
 
 func (f *Framework) setup() error {
-	err := f.SetupEtcdOperator()
-	if err != nil {
-		return fmt.Errorf("failed to setup etcd operator: %v", err)
+	if f.opImage == "" {
+		logrus.Info("no operator image provided, will install etcd operator via ALM")
+		err := f.installEtcdOperatorALM()
+		if err != nil {
+			return fmt.Errorf("failed to install etcd operator via ALM: %v", err)
+		}
+	} else {
+		err := f.SetupEtcdOperator()
+		if err != nil {
+			return fmt.Errorf("failed to setup etcd operator: %v", err)
+		}
+		logrus.Info("etcd operator created successfully")
 	}
-	logrus.Info("etcd operator created successfully")
-
 	logrus.Info("e2e setup successfully")
 	return nil
 }
@@ -190,6 +197,13 @@ func (f *Framework) SetupEtcdOperator() error {
 	return e2eutil.WaitUntilOperatorReady(f.KubeClient, f.Namespace, "etcd-operator")
 }
 
+func (f *Framework) installEtcdOperatorALM() error {
+	//TODO:
+	//* Create etcd subscription CRD in namespace
+	//* (Temporary) Create rolebinding for all serviceaccounts in namespace to permissive-psp role (pending https://jira.coreos.com/browse/ALM-585)
+	//	return fmt.Errorf("NOT IMPLEMENTED!")
+	return nil
+}
 func describePod(ns, name string) {
 	// assuming `kubectl` installed on $PATH
 	cmd := exec.Command("kubectl", "-n", ns, "describe", "pod", name)
@@ -200,10 +214,31 @@ func describePod(ns, name string) {
 }
 
 func (f *Framework) DeleteEtcdOperatorCompletely() error {
+	if f.opImage == "" {
+		err := f.uninstallEtcdOperatorALM()
+		if err != nil {
+			return fmt.Errorf("failed to uninstall etcd operator via ALM: %v", err)
+		}
+	}
 	return f.deleteOperatorCompletely("etcd-operator")
 }
 
+func (f *Framework) uninstallEtcdOperatorALM() error {
+
+	//TODO:
+	// Remove etcd subscription CRD from namespace
+	// return fmt.Errorf("NOT IMPLEMENTED!")
+	return nil
+}
+
 func (f *Framework) deleteOperatorCompletely(name string) error {
+    if f.opImage == "" {
+		err := f.uninstallEtcdOperatorALM()
+		if err != nil {
+			return fmt.Errorf("failed to uninstall etcd operator via ALM: %v", err)
+		}
+	}
+
 	err := f.KubeClient.CoreV1().Pods(f.Namespace).Delete(name, metav1.NewDeleteOptions(1))
 	if err != nil {
 		return err
