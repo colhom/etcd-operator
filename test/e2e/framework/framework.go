@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -59,8 +60,11 @@ type Framework struct {
 func setup() error {
 	kubeconfig := flag.String("kubeconfig", "", "kube config path, e.g. $HOME/.kube/config")
 	opImage := flag.String("operator-image", "", "operator image, e.g. gcr.io/coreos-k8s-scale-testing/etcd-operator")
-	ns := flag.String("namespace", "default", "e2e test namespace")
+	ns := flag.String("namespace", os.Getenv("NAMESPACE"), "e2e test namespace")
 	flag.Parse()
+	if *ns == "" {
+		*ns = "default"
+	}
 
 	var config *rest.Config
 	var err error
