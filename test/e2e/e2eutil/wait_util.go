@@ -33,7 +33,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-var retryInterval = 10 * time.Second
+var retryInterval = 15 * time.Second
 
 type acceptFunc func(*api.EtcdCluster) bool
 type filterFunc func(*v1.Pod) bool
