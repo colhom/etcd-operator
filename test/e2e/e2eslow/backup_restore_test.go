@@ -42,7 +42,7 @@ func init() {
 // TestBackupAndRestore runs the backup test first, and only runs the restore test after if the backup test succeeds and sets the S3 path
 func TestBackupAndRestore(t *testing.T) {
 	if err := verifyAWSEnvVars(); err != nil {
-		t.Fatal(err)
+		t.Skipf("failed to verify AWS environment vars, will skip s3-related backup/restore tests: %v", err)
 	}
 
 	// Create cluster with TLS
